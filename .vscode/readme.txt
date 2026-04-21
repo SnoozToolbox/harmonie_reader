@@ -1,0 +1,1 @@
+Change the settings.json inside .vscode based on your platform
