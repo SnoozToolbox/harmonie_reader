@@ -1,0 +1,68 @@
+name: Build HarmonieReader macOS arm64
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release_artifact:
+        description: 'Upload compiled HarmonieReader.so as workflow artifact'
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - CMakeLists.txt
+      - .gitmodules
+      - src/**
+      - extern/pybind11/**
+      - .github/workflows/build_harmonie_reader_arm64.yml
+
+jobs:
+  build_arm64:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10.11'
+
+      - name: Show build environment
+        run: |
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+          uname -m
+          arch
+          python --version
+          cmake --version
+
+      - name: Configure and build HarmonieReader
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Collect generated shared library
+        run: |
+          mkdir -p out
+          HARMONIE_SO=$(find build -name "HarmonieReader*.so" -type f | head -n 1)
+          if [ -z "$HARMONIE_SO" ]; then
+            echo "HarmonieReader shared library not found in build output"
+            exit 1
+          fi
+          cp "$HARMONIE_SO" out/HarmonieReader.so
+          file out/HarmonieReader.so
+          ls -la out
+
+      - name: Upload artifact
+        if: ${{ inputs.create_release_artifact || github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonieReader-macos-arm64
+          path: out/HarmonieReader.so
