@@ -29,6 +29,16 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Ensure pybind11 sources are available
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          if [ ! -f extern/pybind11/CMakeLists.txt ]; then
+            rm -rf extern/pybind11
+            git clone --depth 1 --branch stable https://github.com/pybind/pybind11.git extern/pybind11
+          fi
+          ls -la extern/pybind11
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
