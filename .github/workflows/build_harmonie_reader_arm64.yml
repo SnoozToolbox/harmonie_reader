@@ -67,12 +67,14 @@ jobs:
             exit 1
           fi
           cp "$HARMONIE_SO" out/HarmonieReader.so
+          tar -czf out/HarmonieReader-macos-arm64.tar.gz -C out HarmonieReader.so
           file out/HarmonieReader.so
           ls -la out
 
       - name: Upload artifact
-        if: ${{ inputs.create_release_artifact || github.event_name == 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release_artifact }}
         uses: actions/upload-artifact@v4
         with:
           name: HarmonieReader-macos-arm64
-          path: out/HarmonieReader.so
+          path: out/HarmonieReader-macos-arm64.tar.gz
+          retention-days: 2
