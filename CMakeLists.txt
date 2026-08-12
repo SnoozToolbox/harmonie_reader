@@ -91,6 +91,11 @@ add_executable(test_read_subject_info
     ${SOURCE_FILES}
 )
 
+add_executable(test_anonymize_subject_info 
+    test/cpp/test_anonymize_subject_info.cpp
+    ${SOURCE_FILES}
+)
+
 add_executable(fix_events_offset 
     test/cpp/fix_events_offset.cpp
     ${SOURCE_FILES}

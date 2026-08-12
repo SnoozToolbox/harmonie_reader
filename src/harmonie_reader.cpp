@@ -447,6 +447,54 @@ HarmonieReader::SUBJECT_INFO HarmonieReader::getSubjectInfo() {
     return m_subjectInfo;   
 }
 
+bool HarmonieReader::anonymizeSubjectInfo(std::string replacementId, bool keepSex) {
+    if (m_file == nullptr) {
+        m_lastError = "ERROR anonymizeSubjectInfo:No file opened.";
+        return false;
+    }
+
+    CPSGFile::PATIENTINFO *patient = &((CPSGFile*)m_file)->m_PatientInfo;
+    CPSGFile::FILEINFO *fileInfo = &((CPSGFile*)m_file)->m_FileInfo;
+
+    // Replace identifiers / names
+    patient->Id1 = replacementId;
+    patient->Id2 = "";
+    patient->Id = replacementId;
+    patient->FirstName = "ANON";
+    patient->LastName = "ANON";
+    patient->MiddleName = "";
+    patient->Name = "ANON, ANON";
+
+    // Clear contact / free-text fields
+    patient->Address = "";
+    patient->City = "";
+    patient->State = "";
+    patient->Country = "";
+    patient->ZipCode = "";
+    patient->HomePhone = "";
+    patient->WorkPhone = "";
+    patient->Comments = "";
+
+    // Clear quasi-identifiers
+    patient->BirthDate = 0;
+    patient->Height = "";
+    patient->Weight = "";
+    if (!keepSex) {
+        patient->Gender = CPSGFile::GenderUnknown;
+    }
+
+    // Clear Harmonie custom patient fields
+    m_file->ClearPatientUserFields();
+
+    // Clear site / description metadata that may identify the source
+    fileInfo->Institution = "";
+    fileInfo->Description = "";
+    fileInfo->CreatedBy = "anonymizer";
+    fileInfo->LastModifiedBy = "anonymizer";
+
+    return true;
+}
+
 /**
  * @brief Retrieves the signal section for the specified montage index, channel name, and section index.
  *

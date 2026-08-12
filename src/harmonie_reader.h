@@ -77,6 +77,7 @@ public:
     int                             getChannelSampleRateByName(std::string channelName, int montageIndex);
     float                           getChannelTrueSampleRateByName(std::string channelName, int montageIndex);
     SUBJECT_INFO                    getSubjectInfo();
+    bool                            anonymizeSubjectInfo(std::string replacementId = "ANON", bool keepSex = true);
     
     int                             getSleepStageGroup();
     uint32_t                        getSignalSectionCount();

@@ -2014,6 +2014,14 @@ int CHarmonieFile::DeleteEventsByName(std::string eventName, uint32_t group_inde
 	return 1;
 }
 
+void CHarmonieFile::ClearPatientUserFields() {
+	m_PatientInfo.UserFieldP1 = "";
+	m_PatientInfo.UserFieldP2 = "";
+	m_PatientInfo.UserFieldP3 = "";
+	m_PatientInfo.UserFieldP4 = "";
+	m_PatientInfo.UserFieldP5 = "";
+}
+
 /*	Supprime le groupe 'Group' et tous ses événements.
 	Demande une confirmation à l'usager si 'DisplayMessage'.
 	Retourne la réponse de l'usager : wxYES ou wxNO.  */

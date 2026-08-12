@@ -127,6 +127,9 @@ PYBIND11_MODULE(HarmonieReader, m) {
         .def("get_sleep_stages", &HarmonieReader::getSleepStages)
         .def("set_sleep_stage", &HarmonieReader::setSleepStage)
         .def("get_subject_info", &HarmonieReader::getSubjectInfo)
+        .def("anonymize_subject_info", &HarmonieReader::anonymizeSubjectInfo,
+             py::arg("replacement_id") = "ANON",
+             py::arg("keep_sex") = true)
         .def("get_last_error", &HarmonieReader::getLastError);
 
 }

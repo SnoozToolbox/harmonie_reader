@@ -488,6 +488,7 @@ public:
 
 	// New interface
 	int DeleteEventsByName(std::string eventName, uint32_t group_index);
+	void ClearPatientUserFields();
 
 	std::string m_lastError;
 };
