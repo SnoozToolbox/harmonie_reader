@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <iomanip>
 #include <math.h>
@@ -216,16 +217,13 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
         return false;
     }
 
-    if (channels.empty()) {
-        m_lastError = "ERROR addEvent:Channels can't be empty.";
-        return false;
-    }
-
     if (m_file->m_Montages.empty()) {
         m_lastError = "ERROR addEvent:no montage found.";
         return false;
     }
 
+    // Official hypnogram group: creating/writing it via addEvent would only make a
+    // generic label group, not GroupType_Stage. Keep that path blocked.
     if (groupLatin1 == "Stade") {
         m_lastError = "ERROR addEvent:Cannot add event of group Stade";
         std::cout << "ERROR addEvent:Cannot add event of group Stade." << std::endl;
@@ -256,8 +254,14 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
     int startSample = currentSection->StartSample + relativeStartSample;
     int nSamples = durationSec * m_file->GetTrueSampleFrequency();
     
-    // channel is received in parameter. It will only use the first one of the list.
-    std::string channel = channels[0];
+    // Optional channel: empty list or "" => channel-less event (MontageChannel_All).
+    // Otherwise only the first channel name is used.
+    const char *channelPtr = nullptr;
+    std::string channel;
+    if (!channels.empty() && !channels[0].empty()) {
+        channel = channels[0];
+        channelPtr = channel.c_str();
+    }
     
     // Start edition
     m_file->BeginGroupsEventEditing(true);
@@ -265,17 +269,28 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
     // Find the group index from the group name
     int group_index = this->getGroupIndexByName(groupLatin1);
     if (group_index == -1) {
-        // if the group isn't found, create a new one.
-        group_index = m_file->AddEventGroup(groupLatin1.c_str(), "");
+        // if the group isn't found, create a new one (user label group, not hypnogram).
+        uint32_t newGroup = m_file->AddEventGroup(groupLatin1.c_str(), "");
+        if (newGroup == UINT32_MAX) {
+            m_file->BeginGroupsEventEditing(false);
+            m_lastError = "ERROR addEvent:Could not create event group:" + group;
+            return false;
+        }
+        group_index = static_cast<int>(newGroup);
     }
 
     // Convert to recording time
     startSec = this->getRecordingStartTime() + startSec;
 
     // Add the event
-    m_file->AddEventItem( group_index, eventNameLatin1.c_str(), "", 
-        startSample, nSamples, startSec, durationSec, channel.c_str() );
+    uint32_t eventIndex = m_file->AddEventItem( group_index, eventNameLatin1.c_str(), "", 
+        startSample, nSamples, startSec, durationSec, channelPtr );
     m_file->BeginGroupsEventEditing(false);
+
+    if (eventIndex == UINT32_MAX) {
+        m_lastError = "ERROR addEvent:Could not add event item.";
+        return false;
+    }
 
     return true;
 }

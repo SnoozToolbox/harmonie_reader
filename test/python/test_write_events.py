@@ -25,14 +25,12 @@ print(f"Opening file... :{filename}")
 res = reader.open_file(filename)
 
 # Adding a test group
-group_name = "TestGroup"
+group_name = "AutoStages"
 group_desc = "TestGroup description"
 
-print(f"Adding event group...")
-print(f"  Group name:{group_name}")
+print(f"Adding events to group:{group_name}")
 print(f"  Group desc:{group_desc}")
-
-group_index = reader.add_event_group(group_name, group_desc)
+print("  (group is created by add_event if it does not exist)")
 
 event_name = "test_write_events_name_" +  str(int(time.time()))
 event_desc = "test_write_events_description"

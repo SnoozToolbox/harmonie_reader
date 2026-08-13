@@ -2091,7 +2091,9 @@ uint32_t CHarmonieFile::AddEventItem( uint32_t Group, const char *Name, const ch
 		m_EventGroup.Group[Group].Extent = GroupExtent_Interval;
 
 	//	Correction des variables 'CHarmonieFile::EGROUP::GroupChannel', '::MontageChannel', '::Montage',
-	if( Channel != nullptr )
+	//	Empty/"all channels" events keep MontageChannel_All (Channel == nullptr).
+	bool hasChannel = Channel != nullptr && Channel[0] != '\0';
+	if( hasChannel )
 	{	m_EventGroup.Group[Group].GroupChannel = GroupChannel_Any;
 		m_EventGroup.Group[Group].MontageChannel = MontageChannel_Any;
 	}
@@ -2112,7 +2114,7 @@ uint32_t CHarmonieFile::AddEventItem( uint32_t Group, const char *Name, const ch
 	EItem.Visibility = StatusVisible;
 
 	//	Initialisation des variables de canal pour les anciennes versions
-	if( EItem.Version < 3 && Channel != nullptr )
+	if( EItem.Version < 3 && hasChannel )
 	{	EvChannel = Channel; CStdString::tolower( EvChannel );		//	Copie du canal de l'événement, en minuscules
 		Ok = false;
 		j = 0;														//	Pour éviter l'avertissement 'C4701: variable locale 'j' potentiellement non initialisée utilisée'
@@ -2156,7 +2158,8 @@ uint32_t CHarmonieFile::AddEventItem( uint32_t Group, const char *Name, const ch
 	EvItem.StartTime = StartTime;
 	EvItem.EndTime = EndTime;
 	EvItem.TimeLength = TimeLenght;
-	if( Channel != nullptr ) EvItem.Channels.push_back( Channel );
+	// Always keep one channel string so save can write Channels[0] (empty = all channels).
+	EvItem.Channels.push_back( hasChannel ? Channel : "" );
 	if( Name != nullptr ) EvItem.Name = Name;
 	if( Description != nullptr ) EvItem.Description = Description;
 
