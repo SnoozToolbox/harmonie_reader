@@ -1,6 +1,8 @@
 #include <iostream>
 #include <stdlib.h>
 #include <fstream>
+#include <cctype>
+#include <string>
 
 #include "HarmonieFile.h"
 #include "StdString.h"
@@ -2020,6 +2022,132 @@ void CHarmonieFile::ClearPatientUserFields() {
 	m_PatientInfo.UserFieldP3 = "";
 	m_PatientInfo.UserFieldP4 = "";
 	m_PatientInfo.UserFieldP5 = "";
+}
+
+void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec )
+{
+	if( Group >= m_EventGroup.Group.size() )
+		return;
+
+	EGROUP *pGroup = &m_EventGroup.Group[Group];
+	pGroup->Id = "F4B8F3EE-8AC2-4EFC-BC86-2A55AF130A6C";	// COM_GRPID_STAGE
+	pGroup->Type = GroupType_Stage;
+	pGroup->Extent = GroupExtent_Interval;
+	pGroup->GroupChannel = GroupChannel_All;
+	pGroup->MontageChannel = MontageChannel_All;
+	pGroup->Channel.clear();
+	m_EventGroups[Group].SleepStageGroup = true;
+
+	if( GetEventItemPropertyIndex( (int)Group, "Stage" ) == -1 )
+	{	ITEMPROPERTY ip;
+		ip.Key = "Stage";
+		ip.Description = "Sleep Stage";
+		pGroup->ItemProperty.push_back( ip );
+	}
+
+	int epochLength = epochLengthSec > 0 ? epochLengthSec : 30;
+	int epochIdx = GetEventGroupPropertyIndex( (int)Group, "EpochLength" );
+	std::string epochVal = std::to_string( epochLength );
+	if( epochIdx == -1 )
+	{	GROUPPROPERTY gp;
+		gp.Key = "EpochLength";
+		gp.Description = "Epoch Length";
+		gp.Value = epochVal;
+		pGroup->GroupProperty.push_back( gp );
+	}else
+		pGroup->GroupProperty[epochIdx].Value = epochVal;
+
+	if( pGroup->DefaultItem.empty() )
+	{	const char *names[] = { "\xC9veil", "Stade1", "Stade2", "Stade3", "Stade4", "SP", "Bouge", "StdND" };
+		for( int i = 0; i < 8; i++ )
+		{	DEFITEM d;
+			d.Name = names[i];
+			d.Color = pGroup->Color;
+			pGroup->DefaultItem.push_back( d );
+		}
+	}
+
+	m_LengthOfSleepEpochs = epochLength;
+	FindGroupVariables();
+}
+
+uint32_t CHarmonieFile::EnsureSleepStageGroup( const char *Name, int epochLengthSec )
+{
+	if( !m_Editing )
+		return UINT32_MAX;
+
+	uint32_t group = UINT32_MAX;
+	if( m_StageGroup != UINT_MAX )
+		group = m_StageGroup;
+	else
+	{	for( uint32_t i = 0; i < m_EventGroups.size(); i++ )
+		{	std::string n = m_EventGroups[i].Name;
+			std::transform( n.begin(), n.end(), n.begin(), ::tolower );
+			if( n == "stade" || n == "stage" )
+			{	group = i;
+				break;
+			}
+		}
+	}
+
+	if( group == UINT32_MAX )
+	{	const char *createName = ( Name != nullptr && Name[0] != '\0' ) ? Name : "Stade";
+		// Stellate's native hypnogram group name is "Stade".
+		if( createName != nullptr )
+		{	std::string n = createName;
+			std::transform( n.begin(), n.end(), n.begin(), ::tolower );
+			if( n == "stage" )
+				createName = "Stade";
+		}
+		group = AddEventGroup( createName, "" );
+		if( group == UINT32_MAX )
+			return UINT32_MAX;
+	}
+
+	ConfigureSleepStageGroup( group, epochLengthSec );
+	return m_StageGroup != UINT_MAX ? m_StageGroup : group;
+}
+
+void CHarmonieFile::ClearEventGroupItems( uint32_t Group )
+{
+	if( !m_Editing || Group >= m_EventGroups.size() )
+		return;
+
+	for( int32_t i = (int32_t)m_EventItems.size() - 1; i >= 0; i-- )
+	{	if( m_EventItems[i].Group == Group )
+		{	m_EventItem.Item.erase( m_EventItem.Item.begin() + i );
+			m_EventItems.erase( m_EventItems.begin() + i );
+		}
+	}
+}
+
+void CHarmonieFile::InitSleepStageEventItem( uint32_t Item, int stage )
+{
+	if( Item >= m_EventItems.size() )
+		return;
+
+	if( stage < 0 || stage > 9 )
+		stage = StageND;
+
+	m_EventItems[Item].SleepStage = (EPSGSleepStage)stage;
+	m_EventItems[Item].RealEvent = true;
+
+	uint32_t group = m_EventItems[Item].Group;
+	size_t nProps = 0;
+	if( group < m_EventGroup.Group.size() )
+		nProps = m_EventGroup.Group[group].ItemProperty.size();
+	if( nProps == 0 )
+		nProps = 1;
+
+	m_EventItem.Item[Item].ItemPropertyValue.assign( nProps, "" );
+	m_EventItem.Item[Item].MontageChannel = MontageChannel_All;
+
+	int prop = GetEventItemPropertyIndex( (int)group, "Stage" );
+	if( prop < 0 )
+		prop = ( m_StageProperty != UINT_MAX ) ? (int)m_StageProperty : 0;
+	if( prop >= (int)m_EventItem.Item[Item].ItemPropertyValue.size() )
+		m_EventItem.Item[Item].ItemPropertyValue.resize( prop + 1 );
+	m_EventItem.Item[Item].ItemPropertyValue[prop] = std::string( 1, (char)( '0' + stage ) );
 }
 
 /*	Supprime le groupe 'Group' et tous ses événements.

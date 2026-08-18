@@ -98,6 +98,10 @@ private:
     std::string currentChannel;
     int currentMontageIndex;
     std::map<std::string, std::vector<double>> m_currentSignals;
+    bool m_replacedSleepStages;
+    bool isHypnogramGroupName(const std::string& groupName);
+    int sleepStageFromEventName(const std::string& name);
+    std::string stellateStageEventName(int stage);
 };
 
 }
