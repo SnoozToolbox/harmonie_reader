@@ -1,10 +1,10 @@
-name: Build HarmonieReader macOS arm64
+name: Build HarmonieReader Windows
 
 on:
   workflow_dispatch:
     inputs:
       create_release_artifact:
-        description: 'Upload compiled HarmonieReader.so as workflow artifact'
+        description: 'Upload compiled HarmonieReader.pyd as workflow artifact'
         required: true
         type: boolean
         default: true
@@ -18,11 +18,11 @@ on:
       - .gitmodules
       - src/**
       - extern/pybind11/**
-      - .github/workflows/build_harmonie_reader_arm64.yml
+      - .github/workflows/build_harmonie_reader_windows.yml
 
 jobs:
-  build_arm64:
-    runs-on: macos-14
+  build_windows:
+    runs-on: windows-2022
 
     steps:
       - name: Checkout repository (with submodules)
@@ -31,6 +31,7 @@ jobs:
           submodules: recursive
 
       - name: Ensure pybind11 sources are available
+        shell: bash
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
@@ -46,36 +47,37 @@ jobs:
           python-version: '3.10.11'
 
       - name: Show build environment
+        shell: bash
         run: |
           echo "runner.os=${{ runner.os }}"
           echo "runner.arch=${{ runner.arch }}"
-          uname -m
-          arch
           python --version
           cmake --version
 
       - name: Configure and build HarmonieReader
+        shell: bash
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release
+          cmake --build build --config Release --target HarmonieReader
 
-      - name: Collect generated shared library
+      - name: Collect generated Python extension
+        shell: bash
         run: |
           mkdir -p out
-          HARMONIE_SO=$(find build -name "HarmonieReader*.so" -type f | head -n 1)
-          if [ -z "$HARMONIE_SO" ]; then
-            echo "HarmonieReader shared library not found in build output"
+          HARMONIE_PYD=$(find build -name "HarmonieReader*.pyd" -type f | head -n 1)
+          if [ -z "$HARMONIE_PYD" ]; then
+            echo "HarmonieReader Python extension not found in build output"
+            find build -type f -name "HarmonieReader*" || true
             exit 1
           fi
-          cp "$HARMONIE_SO" out/HarmonieReader.so
-          tar -czf out/HarmonieReader-macos-arm64.tar.gz -C out HarmonieReader.so
-          file out/HarmonieReader.so
+          cp "$HARMONIE_PYD" out/HarmonieReader.cp310-win_amd64.pyd
+          tar -czf out/HarmonieReader-windows-x86_64.tar.gz -C out HarmonieReader.cp310-win_amd64.pyd
           ls -la out
 
       - name: Upload artifact
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release_artifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonieReader-macos-arm64
-          path: out/HarmonieReader-macos-arm64.tar.gz
+          name: HarmonieReader-windows-x86_64
+          path: out/HarmonieReader-windows-x86_64.tar.gz
           retention-days: 2

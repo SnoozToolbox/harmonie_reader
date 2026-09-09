@@ -1,4 +1,4 @@
-name: Build HarmonieReader macOS arm64
+name: Build HarmonieReader Linux
 
 on:
   workflow_dispatch:
@@ -18,11 +18,11 @@ on:
       - .gitmodules
       - src/**
       - extern/pybind11/**
-      - .github/workflows/build_harmonie_reader_arm64.yml
+      - .github/workflows/build_harmonie_reader_linux.yml
 
 jobs:
-  build_arm64:
-    runs-on: macos-14
+  build_linux:
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository (with submodules)
@@ -40,6 +40,11 @@ jobs:
           fi
           ls -la extern/pybind11
 
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -50,7 +55,6 @@ jobs:
           echo "runner.os=${{ runner.os }}"
           echo "runner.arch=${{ runner.arch }}"
           uname -m
-          arch
           python --version
           cmake --version
 
@@ -68,7 +72,7 @@ jobs:
             exit 1
           fi
           cp "$HARMONIE_SO" out/HarmonieReader.so
-          tar -czf out/HarmonieReader-macos-arm64.tar.gz -C out HarmonieReader.so
+          tar -czf out/HarmonieReader-linux-x86_64.tar.gz -C out HarmonieReader.so
           file out/HarmonieReader.so
           ls -la out
 
@@ -76,6 +80,6 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release_artifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonieReader-macos-arm64
-          path: out/HarmonieReader-macos-arm64.tar.gz
+          name: HarmonieReader-linux-x86_64
+          path: out/HarmonieReader-linux-x86_64.tar.gz
           retention-days: 2
