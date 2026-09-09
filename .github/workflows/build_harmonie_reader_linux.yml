@@ -76,8 +76,10 @@ jobs:
           file out/HarmonieReader.so
           ls -la out
 
+      # Upload on every push build, and on manual runs when the checkbox is enabled.
+      # (workflow_dispatch UI only lists workflows that already exist on the default branch.)
       - name: Upload artifact
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release_artifact }}
+        if: ${{ github.event_name == 'push' || inputs.create_release_artifact }}
         uses: actions/upload-artifact@v4
         with:
           name: HarmonieReader-linux-x86_64
