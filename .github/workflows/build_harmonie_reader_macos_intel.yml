@@ -22,9 +22,8 @@ on:
 
 jobs:
   build_macos_intel:
-    # macos-13 (Intel) was retired Dec 2025. Use GitHub's remaining hosted Intel label.
-    # Note: macos-15-intel support ends ~Aug 2027; prefer arm64 when possible.
-    runs-on: macos-15-intel
+    # macos-13 is GitHub's Intel (x86_64) macOS runner.
+    runs-on: [self-hosted, macOS, X64]
 
     steps:
       - name: Checkout repository (with submodules)
