@@ -5,24 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) launch",
-            "type": "cppdbg",
+            "name": "test_read_events (Debug)",
+            "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/main",
+            "program": "${workspaceFolder}/build/Debug/test_read_events.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ],
-            "miDebuggerPath": "/usr/bin/gdb"
+            "preLaunchTask": "build"
         },
         {
             "name": "Main",

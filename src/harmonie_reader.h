@@ -77,6 +77,7 @@ public:
     int                             getChannelSampleRateByName(std::string channelName, int montageIndex);
     float                           getChannelTrueSampleRateByName(std::string channelName, int montageIndex);
     SUBJECT_INFO                    getSubjectInfo();
+    bool                            anonymizeSubjectInfo(std::string replacementId = "ANON", bool keepSex = true);
     
     int                             getSleepStageGroup();
     uint32_t                        getSignalSectionCount();
@@ -97,6 +98,10 @@ private:
     std::string currentChannel;
     int currentMontageIndex;
     std::map<std::string, std::vector<double>> m_currentSignals;
+    bool m_replacedSleepStages;
+    bool isHypnogramGroupName(const std::string& groupName);
+    int sleepStageFromEventName(const std::string& name);
+    std::string stellateStageEventName(int stage);
 };
 
 }

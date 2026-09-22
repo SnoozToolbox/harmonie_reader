@@ -1,4 +1,4 @@
-name: Build HarmonieReader macOS arm64
+name: Build HarmonieReader macOS Intel
 
 on:
   workflow_dispatch:
@@ -18,11 +18,12 @@ on:
       - .gitmodules
       - src/**
       - extern/pybind11/**
-      - .github/workflows/build_harmonie_reader_arm64.yml
+      - .github/workflows/build_harmonie_reader_macos_intel.yml
 
 jobs:
-  build_arm64:
-    runs-on: macos-14
+  build_macos_intel:
+    # macos-13 is GitHub's Intel (x86_64) macOS runner.
+    runs-on: [self-hosted, macOS, X64]
 
     steps:
       - name: Checkout repository (with submodules)
@@ -68,7 +69,7 @@ jobs:
             exit 1
           fi
           cp "$HARMONIE_SO" out/HarmonieReader.so
-          tar -czf out/HarmonieReader-macos-arm64.tar.gz -C out HarmonieReader.so
+          tar -czf out/HarmonieReader-macos-x86_64.tar.gz -C out HarmonieReader.so
           file out/HarmonieReader.so
           ls -la out
 
@@ -78,6 +79,6 @@ jobs:
         if: ${{ github.event_name == 'push' || inputs.create_release_artifact }}
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonieReader-macos-arm64
-          path: out/HarmonieReader-macos-arm64.tar.gz
+          name: HarmonieReader-macos-x86_64
+          path: out/HarmonieReader-macos-x86_64.tar.gz
           retention-days: 2

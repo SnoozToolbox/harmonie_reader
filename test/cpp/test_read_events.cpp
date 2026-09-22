@@ -1,7 +1,7 @@
 // Your First C++ Program
 
 #include <iostream>
-#include "../src/harmonie_reader.h"
+#include "harmonie_reader.h"
 
 using namespace Harmonie;
 
@@ -9,7 +9,7 @@ int main() {
     HarmonieReader reader;
     std::cout << "Test: test_read_events" << std::endl;
 
-    std::string filename = "";
+    std::string filename = "E:/CEAMS/snooz_workspace/Datasets/MASS_SIG_STS/01-03-0004.sts";
     if (filename == "") {
         std::cout << "ERROR: No filename specified" << std::endl;
         return 0;

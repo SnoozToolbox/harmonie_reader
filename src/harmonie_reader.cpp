@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <iostream>
 #include <iomanip>
 #include <math.h>
@@ -11,6 +13,7 @@ using namespace Harmonie;
 
 HarmonieReader::HarmonieReader() {
     setlocale(LC_ALL, ".UTF8");
+    m_replacedSleepStages = false;
 }
 
 HarmonieReader::~HarmonieReader() {
@@ -19,6 +22,7 @@ HarmonieReader::~HarmonieReader() {
 bool HarmonieReader::openFile(std::string filename) {
     this->currentChannel = "";
     this->currentMontageIndex = -1;
+    m_replacedSleepStages = false;
 
     FILE *f = fopen( filename.c_str(), "rb" );
 
@@ -41,6 +45,7 @@ bool HarmonieReader::openFile(std::string filename) {
 void HarmonieReader::closeFile() {
     this->currentChannel = "";
     this->currentMontageIndex = -1;
+    m_replacedSleepStages = false;
     if (m_file != nullptr) {
         delete m_file;
         m_file = nullptr;
@@ -202,6 +207,36 @@ float HarmonieReader::getChannelTrueSampleRateByName(std::string channelName, in
     return -1;
 }
 
+int HarmonieReader::sleepStageFromEventName(const std::string& name) {
+    for (unsigned char c : name) {
+        if (c >= '0' && c <= '9')
+            return c - '0';
+    }
+    return 9;
+}
+
+std::string HarmonieReader::stellateStageEventName(int stage) {
+    switch (stage) {
+        case 0: return "\xC9veil";  // Latin-1 Éveil (same as CPSGFile::GetName)
+        case 1: return "Stade1";
+        case 2: return "Stade2";
+        case 3: return "Stade3";
+        case 4: return "Stade4";
+        case 5: return "SP";
+        case 6: return "Bouge";
+        case 7: return "Intervention";
+        default: return "StdND";
+    }
+}
+
+bool HarmonieReader::isHypnogramGroupName(const std::string& groupName) {
+    std::string n = groupName;
+    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return n == "stage" || n == "stade";
+}
+
 bool HarmonieReader::addEvent(std::string name, std::string group, double startSec, 
     double durationSec, std::vector<std::string> channels, int montageIndex) {
     
@@ -216,21 +251,12 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
         return false;
     }
 
-    if (channels.empty()) {
-        m_lastError = "ERROR addEvent:Channels can't be empty.";
-        return false;
-    }
-
     if (m_file->m_Montages.empty()) {
         m_lastError = "ERROR addEvent:no montage found.";
         return false;
     }
 
-    if (groupLatin1 == "Stade") {
-        m_lastError = "ERROR addEvent:Cannot add event of group Stade";
-        std::cout << "ERROR addEvent:Cannot add event of group Stade." << std::endl;
-        return false;
-    }
+    bool writeHypnogram = isHypnogramGroupName(groupLatin1);
 
     int sectionIndex = findSampleSectionIndex(startSec);
     if (sectionIndex == -1) {
@@ -256,26 +282,69 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
     int startSample = currentSection->StartSample + relativeStartSample;
     int nSamples = durationSec * m_file->GetTrueSampleFrequency();
     
-    // channel is received in parameter. It will only use the first one of the list.
-    std::string channel = channels[0];
+    // Optional channel: empty list or "" => channel-less event (MontageChannel_All).
+    // Hypnogram epochs are never tied to a specific electrode.
+    const char *channelPtr = nullptr;
+    std::string channel;
+    if (!writeHypnogram && !channels.empty() && !channels[0].empty()) {
+        channel = channels[0];
+        channelPtr = channel.c_str();
+    }
     
     // Start edition
     m_file->BeginGroupsEventEditing(true);
 
-    // Find the group index from the group name
-    int group_index = this->getGroupIndexByName(groupLatin1);
-    if (group_index == -1) {
-        // if the group isn't found, create a new one.
-        group_index = m_file->AddEventGroup(groupLatin1.c_str(), "");
+    int group_index = -1;
+    int stageCode = 9;
+    std::string eventNameToWrite = eventNameLatin1;
+    if (writeHypnogram) {
+        int epochLength = (int)round(durationSec);
+        if (epochLength <= 0)
+            epochLength = 30;
+        uint32_t stageGroup = m_file->EnsureSleepStageGroup("Stade", epochLength);
+        if (stageGroup == UINT32_MAX) {
+            m_file->BeginGroupsEventEditing(false);
+            m_lastError = "ERROR addEvent:Could not create Stade hypnogram group.";
+            return false;
+        }
+        group_index = static_cast<int>(stageGroup);
+        // First "stage"/"Stade" write after open replaces the existing hypnogram.
+        if (!m_replacedSleepStages) {
+            m_file->ClearEventGroupItems(stageGroup);
+            m_replacedSleepStages = true;
+        }
+        stageCode = sleepStageFromEventName(eventNameLatin1);
+        eventNameToWrite = stellateStageEventName(stageCode);
+    } else {
+        group_index = this->getGroupIndexByName(groupLatin1);
+        if (group_index == -1) {
+            uint32_t newGroup = m_file->AddEventGroup(groupLatin1.c_str(), "");
+            if (newGroup == UINT32_MAX) {
+                m_file->BeginGroupsEventEditing(false);
+                m_lastError = "ERROR addEvent:Could not create event group:" + group;
+                return false;
+            }
+            group_index = static_cast<int>(newGroup);
+        }
     }
 
     // Convert to recording time
     startSec = this->getRecordingStartTime() + startSec;
 
     // Add the event
-    m_file->AddEventItem( group_index, eventNameLatin1.c_str(), "", 
-        startSample, nSamples, startSec, durationSec, channel.c_str() );
+    uint32_t eventIndex = m_file->AddEventItem( group_index, eventNameToWrite.c_str(), "", 
+        startSample, nSamples, startSec, durationSec, channelPtr );
+
+    if (eventIndex != UINT32_MAX && writeHypnogram) {
+        m_file->InitSleepStageEventItem(eventIndex, stageCode);
+    }
+
     m_file->BeginGroupsEventEditing(false);
+
+    if (eventIndex == UINT32_MAX) {
+        m_lastError = "ERROR addEvent:Could not add event item.";
+        return false;
+    }
 
     return true;
 }
@@ -445,6 +514,54 @@ HarmonieReader::SUBJECT_INFO HarmonieReader::getSubjectInfo() {
     m_subjectInfo.bmi =         m_subjectInfo.weight / (m_subjectInfo.height*m_subjectInfo.height);
     m_subjectInfo.waistSize =   0; // TODO
     return m_subjectInfo;   
+}
+
+bool HarmonieReader::anonymizeSubjectInfo(std::string replacementId, bool keepSex) {
+    if (m_file == nullptr) {
+        m_lastError = "ERROR anonymizeSubjectInfo:No file opened.";
+        return false;
+    }
+
+    CPSGFile::PATIENTINFO *patient = &((CPSGFile*)m_file)->m_PatientInfo;
+    CPSGFile::FILEINFO *fileInfo = &((CPSGFile*)m_file)->m_FileInfo;
+
+    // Replace identifiers / names
+    patient->Id1 = replacementId;
+    patient->Id2 = "";
+    patient->Id = replacementId;
+    patient->FirstName = "ANON";
+    patient->LastName = "ANON";
+    patient->MiddleName = "";
+    patient->Name = "ANON, ANON";
+
+    // Clear contact / free-text fields
+    patient->Address = "";
+    patient->City = "";
+    patient->State = "";
+    patient->Country = "";
+    patient->ZipCode = "";
+    patient->HomePhone = "";
+    patient->WorkPhone = "";
+    patient->Comments = "";
+
+    // Clear quasi-identifiers
+    patient->BirthDate = 0;
+    patient->Height = "";
+    patient->Weight = "";
+    if (!keepSex) {
+        patient->Gender = CPSGFile::GenderUnknown;
+    }
+
+    // Clear Harmonie custom patient fields
+    m_file->ClearPatientUserFields();
+
+    // Clear site / description metadata that may identify the source
+    fileInfo->Institution = "";
+    fileInfo->Description = "";
+    fileInfo->CreatedBy = "anonymizer";
+    fileInfo->LastModifiedBy = "anonymizer";
+
+    return true;
 }
 
 /**
