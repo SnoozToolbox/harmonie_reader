@@ -129,7 +129,11 @@ PYBIND11_MODULE(HarmonieReader, m) {
         .def("get_subject_info", &HarmonieReader::getSubjectInfo)
         .def("anonymize_subject_info", &HarmonieReader::anonymizeSubjectInfo,
              py::arg("replacement_id") = "ANON",
-             py::arg("keep_sex") = true)
+             py::arg("keep_sex") = true,
+             py::arg("copy_before_anonymize") = false,
+             py::arg("rename_to_id") = false,
+             py::arg("output_path") = "")
+        .def("get_filename", &HarmonieReader::getFilename)
         .def("get_last_error", &HarmonieReader::getLastError);
 
 }

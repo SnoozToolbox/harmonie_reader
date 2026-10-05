@@ -1,19 +1,155 @@
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdint>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <math.h>
 #include <vector>
+
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
 
 #include "harmonie_reader.h"
 #include "PSGFileDefs.h"
 
 using namespace Harmonie;
 
+namespace {
+
+std::string directoryOf(const std::string& path) {
+    size_t separator = path.find_last_of("/\\");
+    if (separator == std::string::npos) {
+        return "";
+    }
+    return path.substr(0, separator + 1);
+}
+
+std::string basenameWithoutExtension(const std::string& path) {
+    size_t separator = path.find_last_of("/\\");
+    std::string name = (separator == std::string::npos) ? path : path.substr(separator + 1);
+    size_t dot = name.find_last_of('.');
+    return (dot == std::string::npos) ? name : name.substr(0, dot);
+}
+
+std::string extensionOf(const std::string& path) {
+    size_t separator = path.find_last_of("/\\");
+    std::string name = (separator == std::string::npos) ? path : path.substr(separator + 1);
+    size_t dot = name.find_last_of('.');
+    return (dot == std::string::npos) ? "" : name.substr(dot + 1);
+}
+
+// Windows paths are case insensitive, so a plain string compare is not enough to tell
+// whether the anonymized destination is in fact the file that is already opened.
+bool pathsEqual(const std::string& left, const std::string& right) {
+    if (left.length() != right.length()) {
+        return false;
+    }
+    for (size_t i = 0; i < left.length(); i++) {
+        char a = (char)tolower((unsigned char)left[i]);
+        char b = (char)tolower((unsigned char)right[i]);
+        if (a == '\\') a = '/';
+        if (b == '\\') b = '/';
+        if (a != b) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string sanitizeFilenameComponent(const std::string& value) {
+    std::string sanitized;
+    for (size_t i = 0; i < value.length(); i++) {
+        unsigned char c = (unsigned char)value[i];
+        if (isalnum(c) || c == '-' || c == '_') {
+            sanitized += (char)c;
+        } else {
+            sanitized += '_';
+        }
+    }
+    if (sanitized.empty()) {
+        sanitized = "ANON";
+    }
+    return sanitized;
+}
+
+std::string findCompanionSignalFile(const std::string& stsPath) {
+    std::string base = directoryOf(stsPath) + basenameWithoutExtension(stsPath);
+    const char* extensions[] = { "sig", "SIG" };
+    for (int i = 0; i < 2; i++) {
+        std::string candidate = base + "." + extensions[i];
+        if (std::ifstream(candidate.c_str())) {
+            return candidate;
+        }
+    }
+    return "";
+}
+
+// Appends the separator expected when concatenating a file name to a directory
+std::string withTrailingSeparator(const std::string& directory) {
+    if (directory.empty()) {
+        return directory;
+    }
+    char last = directory[directory.length() - 1];
+    if (last == '/' || last == '\\') {
+        return directory;
+    }
+    return directory + "/";
+}
+
+bool createDirectories(const std::string& directory) {
+    if (directory.empty()) {
+        return true;
+    }
+    for (size_t i = 0; i < directory.length(); i++) {
+        char c = directory[i];
+        bool last = (i == directory.length() - 1);
+        if (c != '/' && c != '\\' && !last) {
+            continue;
+        }
+        std::string prefix = directory.substr(0, last ? directory.length() : i);
+        // Skip drive letters ("C:") and the root of an absolute path
+        if (prefix.empty() || (prefix.length() == 2 && prefix[1] == ':')) {
+            continue;
+        }
+#ifdef _WIN32
+        int result = _mkdir(prefix.c_str());
+#else
+        int result = mkdir(prefix.c_str(), 0775);
+#endif
+        if (result != 0 && errno != EEXIST) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool copyBinaryFile(const std::string& source, const std::string& destination) {
+    std::ifstream in(source.c_str(), std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    std::ofstream out(destination.c_str(), std::ios::binary);
+    if (!out) {
+        return false;
+    }
+    out << in.rdbuf();
+    return out.good();
+}
+
+}
+
 HarmonieReader::HarmonieReader() {
     setlocale(LC_ALL, ".UTF8");
     m_replacedSleepStages = false;
+    m_keepSourceFiles = false;
+    m_removeBackupOnSave = false;
 }
 
 HarmonieReader::~HarmonieReader() {
@@ -23,6 +159,9 @@ bool HarmonieReader::openFile(std::string filename) {
     this->currentChannel = "";
     this->currentMontageIndex = -1;
     m_replacedSleepStages = false;
+    m_anonymizedOutputPath.clear();
+    m_keepSourceFiles = false;
+    m_removeBackupOnSave = false;
 
     FILE *f = fopen( filename.c_str(), "rb" );
 
@@ -46,17 +185,86 @@ void HarmonieReader::closeFile() {
     this->currentChannel = "";
     this->currentMontageIndex = -1;
     m_replacedSleepStages = false;
+    m_anonymizedOutputPath.clear();
+    m_keepSourceFiles = false;
+    m_removeBackupOnSave = false;
     if (m_file != nullptr) {
         delete m_file;
         m_file = nullptr;
     }
 }
 
-bool HarmonieReader::saveFile() {
-    if (m_file != nullptr) {
-        return m_file->SaveFile(nullptr);
+std::string HarmonieReader::getFilename() {
+    if (m_file == nullptr) {
+        return "";
     }
-    return false;
+    return ((CPSGFile*)m_file)->m_FileInfo.FileName;
+}
+
+bool HarmonieReader::saveFile() {
+    if (m_file == nullptr) {
+        m_lastError = "ERROR saveFile:No file opened.";
+        return false;
+    }
+
+    std::string sourceSts = ((CPSGFile*)m_file)->m_FileInfo.FileName;
+
+    // Overwrite the file that was opened
+    if (m_anonymizedOutputPath.empty()) {
+        if (!m_file->SaveFile(nullptr)) {
+            m_lastError = "ERROR saveFile:Could not write file:" + sourceSts;
+            return false;
+        }
+        // SaveFile keeps a .bak of the file as it was before the save. After an
+        // anonymization that backup still holds the original identifiers.
+        if (m_removeBackupOnSave) {
+            std::remove((sourceSts + ".bak").c_str());
+            m_removeBackupOnSave = false;
+        }
+        return true;
+    }
+
+    std::string targetSts = m_anonymizedOutputPath;
+    if (!createDirectories(directoryOf(targetSts))) {
+        m_lastError = "ERROR saveFile:Could not create output folder:" + directoryOf(targetSts);
+        return false;
+    }
+    if (!m_file->SaveFile(targetSts.c_str())) {
+        m_lastError = "ERROR saveFile:Could not write file:" + targetSts;
+        return false;
+    }
+
+    // SaveFile only writes the .sts, the signal stays in the companion file
+    std::string sourceSig = findCompanionSignalFile(sourceSts);
+    if (!sourceSig.empty()) {
+        std::string targetSig = directoryOf(targetSts) + basenameWithoutExtension(targetSts) +
+                                "." + extensionOf(sourceSig);
+        if (!pathsEqual(sourceSig, targetSig)) {
+            if (m_keepSourceFiles) {
+                if (!copyBinaryFile(sourceSig, targetSig)) {
+                    m_lastError = "ERROR saveFile:Could not copy signal file to:" + targetSig;
+                    return false;
+                }
+            } else {
+                std::remove(targetSig.c_str());
+                if (std::rename(sourceSig.c_str(), targetSig.c_str()) != 0) {
+                    m_lastError = "ERROR saveFile:Could not move signal file to:" + targetSig;
+                    return false;
+                }
+            }
+        }
+    }
+
+    if (!m_keepSourceFiles) {
+        std::remove(sourceSts.c_str());
+    }
+
+    // Further operations (signal reading, saving again) must use the anonymized file
+    ((CPSGFile*)m_file)->m_FileInfo.FileName = targetSts;
+    m_anonymizedOutputPath.clear();
+    m_keepSourceFiles = false;
+    m_removeBackupOnSave = false;
+    return true;
 }
 
 std::vector<CPSGFile::MONTAGE> HarmonieReader::getMontages() {
@@ -516,7 +724,9 @@ HarmonieReader::SUBJECT_INFO HarmonieReader::getSubjectInfo() {
     return m_subjectInfo;   
 }
 
-bool HarmonieReader::anonymizeSubjectInfo(std::string replacementId, bool keepSex) {
+bool HarmonieReader::anonymizeSubjectInfo(std::string replacementId, bool keepSex,
+                                          bool copyBeforeAnonymize, bool renameToId,
+                                          std::string outputPath) {
     if (m_file == nullptr) {
         m_lastError = "ERROR anonymizeSubjectInfo:No file opened.";
         return false;
@@ -560,6 +770,53 @@ bool HarmonieReader::anonymizeSubjectInfo(std::string replacementId, bool keepSe
     fileInfo->Description = "";
     fileInfo->CreatedBy = "anonymizer";
     fileInfo->LastModifiedBy = "anonymizer";
+
+    // Pick the destination used by the next saveFile()
+    std::string sourceSts = fileInfo->FileName;
+    m_anonymizedOutputPath.clear();
+    m_keepSourceFiles = copyBeforeAnonymize;
+    m_removeBackupOnSave = true;
+
+    // 'outputPath' is either the folder receiving the anonymized recording or the
+    // full path of the .sts to write. Without it the files stay next to the original.
+    std::string targetDirectory = directoryOf(sourceSts);
+    std::string explicitTarget;
+    if (!outputPath.empty()) {
+        std::string extension = extensionOf(outputPath);
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        if (extension == "sts") {
+            explicitTarget = outputPath;
+            targetDirectory = directoryOf(outputPath);
+        } else {
+            targetDirectory = withTrailingSeparator(outputPath);
+        }
+    }
+
+    if (!explicitTarget.empty() || copyBeforeAnonymize || renameToId || !outputPath.empty()) {
+        std::string targetSts = explicitTarget;
+        if (targetSts.empty()) {
+            std::string targetBase;
+            if (renameToId) {
+                targetBase = sanitizeFilenameComponent(replacementId);
+            } else if (!outputPath.empty()) {
+                // A destination folder was given, so the original name can be kept
+                targetBase = basenameWithoutExtension(sourceSts);
+            } else {
+                targetBase = basenameWithoutExtension(sourceSts) + "_anon";
+            }
+            targetSts = targetDirectory + targetBase + ".sts";
+
+            // The destination resolved to the file being anonymized, do not clobber it
+            if (pathsEqual(targetSts, sourceSts) && copyBeforeAnonymize) {
+                targetSts = targetDirectory + basenameWithoutExtension(sourceSts) + "_anon.sts";
+            }
+        }
+
+        if (!pathsEqual(targetSts, sourceSts)) {
+            m_anonymizedOutputPath = targetSts;
+            m_removeBackupOnSave = false;
+        }
+    }
 
     return true;
 }

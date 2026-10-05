@@ -77,7 +77,15 @@ public:
     int                             getChannelSampleRateByName(std::string channelName, int montageIndex);
     float                           getChannelTrueSampleRateByName(std::string channelName, int montageIndex);
     SUBJECT_INFO                    getSubjectInfo();
-    bool                            anonymizeSubjectInfo(std::string replacementId = "ANON", bool keepSex = true);
+    // Scrubs the patient/header metadata held in memory. The remaining arguments only decide
+    // where the next saveFile() writes: 'copyBeforeAnonymize' keeps the source files untouched
+    // and writes to a new pair of files, 'renameToId' names those files after 'replacementId'
+    // instead of reusing the original name, and 'outputPath' sends them to another folder
+    // (or to an explicit .sts path) instead of next to the original.
+    bool                            anonymizeSubjectInfo(std::string replacementId = "ANON", bool keepSex = true,
+                                        bool copyBeforeAnonymize = false, bool renameToId = false,
+                                        std::string outputPath = "");
+    std::string                     getFilename();
     
     int                             getSleepStageGroup();
     uint32_t                        getSignalSectionCount();
@@ -99,6 +107,10 @@ private:
     int currentMontageIndex;
     std::map<std::string, std::vector<double>> m_currentSignals;
     bool m_replacedSleepStages;
+    // Destination of the next saveFile(). Empty means overwrite the file that was opened.
+    std::string m_anonymizedOutputPath;
+    bool m_keepSourceFiles;
+    bool m_removeBackupOnSave;
     bool isHypnogramGroupName(const std::string& groupName);
     int sleepStageFromEventName(const std::string& name);
     std::string stellateStageEventName(int stage);

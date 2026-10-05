@@ -3,16 +3,12 @@
 Anonymize Harmonie .sts patient/header metadata, then verify by reopening.
 
 Usage (from repo root, after Release build of the Python module):
-  python test/python/test_anonymize_subject_info.py path\\to\\recording.sts
-  python test/python/test_anonymize_subject_info.py path\\to\\recording.sts SUBJ001
+  python test/python/test_anonymize_subject_info.py
 
-Works on a copy (*_anon.sts) so the original is left unchanged.
-Also copies the companion .sig/.SIG if present.
-Deletes the .bak created by save_file().
+Set the variables in the CONFIG section below before running.
 """
 
 import os
-import shutil
 import sys
 from sys import platform
 
@@ -24,6 +20,18 @@ elif platform == "darwin":
     import build.HarmonieReader as HarmonieReader
 elif platform == "win32":
     import build.Release.HarmonieReader as HarmonieReader
+
+
+# ---------------------------------------------------------------------------
+# CONFIG — edit these before running
+# ---------------------------------------------------------------------------
+filename = "E:\\CEAMS\\snooz_workspace\\Datasets\\MASS_SIG_STS\\Continues Files\\01-01-0001.sts"                          # Path to the source .sts file
+replacement_id = "ANON0001"                # Patient ID written into the anonymized file
+copy_before_anonymize = True           # True: keep source, write new files; False: overwrite/move source
+rename_to_id = True                   # True: name output files after replacement_id
+output_path = "E:\\CEAMS\\snooz_workspace\\Datasets\\MASS_SIG_STS\\Continues Files\\Anon"                       # Destination folder (or full .sts path). Empty = next to original.
+keep_sex = True                        # True: keep gender; False: clear it
+# ---------------------------------------------------------------------------
 
 
 def find_sig(sts_path):
@@ -47,82 +55,72 @@ def print_subject(label, info):
     print(f"  weight:     {info.weight}")
 
 
-def is_anonymized(info, replacement_id):
+def is_anonymized(info, expected_id):
     checks = [
-        (info.id == replacement_id, "id"),
+        (info.id == expected_id, "id"),
         (info.firstname == "ANON", "firstname"),
         (info.lastname == "ANON", "lastname"),
         (info.birth_date == 0, "birth_date"),
         (info.height == 0, "height"),
         (info.weight == 0, "weight"),
     ]
-    failed = [name for ok, name in checks if not ok]
-    return failed
+    return [name for ok, name in checks if not ok]
 
 
 def main():
     print("Test: test_anonymize_subject_info")
 
-    filename = ""
-    replacement_id = "ANON"
-    if len(sys.argv) >= 2:
-        filename = sys.argv[1]
-    if len(sys.argv) >= 3:
-        replacement_id = sys.argv[2]
-
-    # Or set a path here when running from the IDE:
-    # filename = r"C:\path\to\recording.sts"
-
     if filename == "":
         print("ERROR: No filename specified")
-        print("Usage: python test/python/test_anonymize_subject_info.py <file.sts> [replacement_id]")
+        print("Set 'filename' at the top of this script before running.")
         quit(1)
 
     if not os.path.isfile(filename):
         print(f"ERROR: File not found: {filename}")
         quit(1)
 
-    base, ext = os.path.splitext(filename)
-    anon_sts = base + "_anon" + ext
-
-    print(f"Copying {filename} -> {anon_sts}")
-    shutil.copy2(filename, anon_sts)
-
-    sig_src = find_sig(filename)
-    if sig_src:
-        anon_sig = base + "_anon" + os.path.splitext(sig_src)[1]
-        print(f"Copying companion signal {sig_src} -> {anon_sig}")
-        shutil.copy2(sig_src, anon_sig)
-    else:
-        print("WARNING: No companion .sig/.SIG found (signal read not required for this test)")
+    if not copy_before_anonymize:
+        print("WARNING: copy_before_anonymize=False will overwrite/move the source files")
 
     reader = HarmonieReader.HarmonieReader()
-    print(f"Opening copy: {anon_sts}")
-    if not reader.open_file(anon_sts):
-        print(f"ERROR Failed to open: {anon_sts}")
+    print(f"Opening: {filename}")
+    if not reader.open_file(filename):
+        print(f"ERROR Failed to open: {filename}")
         print(reader.get_last_error())
         quit(1)
 
     before = reader.get_subject_info()
     print_subject("BEFORE", before)
-    original_lastname = before.lastname
     original_firstname = before.firstname
+    original_lastname = before.lastname
 
-    print(f"Anonymizing with replacement_id={replacement_id} ...")
-    if not reader.anonymize_subject_info(replacement_id, True):
+    print(f"Anonymizing with replacement_id={replacement_id} "
+          f"copy={copy_before_anonymize} rename={rename_to_id} "
+          f"out={output_path or '<next to original>'} ...")
+    if not reader.anonymize_subject_info(replacement_id, keep_sex,
+                                         copy_before_anonymize, rename_to_id,
+                                         output_path):
         print(f"ERROR anonymize failed: {reader.get_last_error()}")
         quit(1)
 
     print("Saving file...")
     if not reader.save_file():
-        print("ERROR save_file failed")
+        print(f"ERROR save_file failed: {reader.get_last_error()}")
         quit(1)
-    reader.close_file()
 
-    bak = anon_sts + ".bak"
-    if os.path.isfile(bak):
-        print(f"Removing backup with original PHI: {bak}")
-        os.remove(bak)
+    anon_sts = reader.get_filename()
+    reader.close_file()
+    print(f"Anonymized file: {anon_sts}")
+
+    if copy_before_anonymize and not os.path.isfile(filename):
+        print("ERROR source file disappeared while copying was requested")
+        quit(1)
+
+    anon_sig = find_sig(anon_sts)
+    if anon_sig:
+        print(f"Companion signal: {anon_sig}")
+    else:
+        print("WARNING: No companion .sig/.SIG next to the anonymized file")
 
     print("Reopening anonymized file for verification...")
     validation = HarmonieReader.HarmonieReader()
@@ -140,21 +138,23 @@ def main():
         print(f"ERROR anonymization incomplete for fields: {failed}")
         quit(1)
 
-    # Best-effort binary search: original names should not remain in .sts
-    if original_lastname and original_lastname not in ("ANON",):
-        with open(anon_sts, "rb") as f:
-            data = f.read()
-        # Harmonie stores Latin-1 text; try common encodings
-        for name in (original_lastname, original_firstname):
-            if not name or name == "ANON":
+    if os.path.isfile(anon_sts + ".bak"):
+        print(f"ERROR backup with original values was left behind: {anon_sts}.bak")
+        quit(1)
+
+    # Best-effort binary search: original names should not remain in the .sts
+    with open(anon_sts, "rb") as f:
+        data = f.read()
+    for name in (original_lastname, original_firstname):
+        if not name or name == "ANON":
+            continue
+        for encoding in ("latin-1", "utf-8"):
+            try:
+                needle = name.encode(encoding)
+            except UnicodeEncodeError:
                 continue
-            for encoding in ("latin-1", "utf-8"):
-                try:
-                    needle = name.encode(encoding)
-                except UnicodeEncodeError:
-                    continue
-                if needle in data:
-                    print(f"WARNING: original string still present in file bytes: {name!r} ({encoding})")
+            if needle in data:
+                print(f"WARNING: original string still present in file bytes: {name!r} ({encoding})")
 
     print(f"SUCCESS Subject info anonymized. Output file: {anon_sts}")
     print("DONE")
