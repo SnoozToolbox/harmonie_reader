@@ -2045,17 +2045,25 @@ void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec
 		pGroup->ItemProperty.push_back( ip );
 	}
 
-	int epochLength = epochLengthSec > 0 ? epochLengthSec : 30;
+	/*	EpochLength must be set once when the stage group is created.
+		Never overwrite it from a later (possibly truncated) epoch duration:
+		BeginGroupsEventEditing(false) calls AddMissingEpochs(), which fills
+		gaps using m_LengthOfSleepEpochs. Shrinking it (e.g. 30 -> 2) causes
+		a dense StdND refill of the whole hypnogram.  */
 	int epochIdx = GetEventGroupPropertyIndex( (int)Group, "EpochLength" );
-	std::string epochVal = std::to_string( epochLength );
 	if( epochIdx == -1 )
-	{	GROUPPROPERTY gp;
+	{	int epochLength = epochLengthSec > 0 ? epochLengthSec : 30;
+		GROUPPROPERTY gp;
 		gp.Key = "EpochLength";
 		gp.Description = "Epoch Length";
-		gp.Value = epochVal;
+		gp.Value = std::to_string( epochLength );
 		pGroup->GroupProperty.push_back( gp );
-	}else
-		pGroup->GroupProperty[epochIdx].Value = epochVal;
+		m_LengthOfSleepEpochs = epochLength;
+	}else if( m_LengthOfSleepEpochs <= 0 )
+	{	m_LengthOfSleepEpochs = atoi( pGroup->GroupProperty[epochIdx].Value.c_str() );
+		if( m_LengthOfSleepEpochs <= 0 )
+			m_LengthOfSleepEpochs = 30;
+	}
 
 	if( pGroup->DefaultItem.empty() )
 	{	const char *names[] = { "\xC9veil", "Stade1", "Stade2", "Stade3", "Stade4", "SP", "Bouge", "StdND" };
@@ -2067,7 +2075,6 @@ void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec
 		}
 	}
 
-	m_LengthOfSleepEpochs = epochLength;
 	FindGroupVariables();
 }
 

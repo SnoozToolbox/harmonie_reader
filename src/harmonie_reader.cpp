@@ -478,9 +478,14 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
 
     double sectionStartTime = currentSection->StartTime - this->getRecordingStartTime();
     double sectionEndTime = currentSection->EndTime - this->getRecordingStartTime();
+
+    // Keep the requested duration for stage-group EpochLength. Truncation must
+    // never redefine the hypnogram grid (see EnsureSleepStageGroup / AddMissingEpochs).
+    const double requestedDurationSec = durationSec;
+    const bool truncatedToSection = (startSec + durationSec > sectionEndTime);
     
     // Trunc the signal to fit within the section
-    if (startSec + durationSec > sectionEndTime) {
+    if (truncatedToSection) {
         durationSec = sectionEndTime - startSec;
     }
     
@@ -506,9 +511,17 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
     int stageCode = 9;
     std::string eventNameToWrite = eventNameLatin1;
     if (writeHypnogram) {
-        int epochLength = (int)round(durationSec);
-        if (epochLength <= 0)
-            epochLength = 30;
+        // EpochLength is only applied when the Stade group is first created.
+        // Prefer an existing value; otherwise use the first full (untruncated) epoch,
+        // falling back to the Harmonie default of 30 s. Never use a truncated duration.
+        int epochLength = 30;
+        if (m_file->m_LengthOfSleepEpochs > 0) {
+            epochLength = m_file->m_LengthOfSleepEpochs;
+        } else if (!truncatedToSection && requestedDurationSec > 0.5) {
+            epochLength = (int)round(requestedDurationSec);
+            if (epochLength <= 0)
+                epochLength = 30;
+        }
         uint32_t stageGroup = m_file->EnsureSleepStageGroup("Stade", epochLength);
         if (stageGroup == UINT32_MAX) {
             m_file->BeginGroupsEventEditing(false);
