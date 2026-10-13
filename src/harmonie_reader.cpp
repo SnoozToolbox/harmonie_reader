@@ -511,26 +511,28 @@ bool HarmonieReader::addEvent(std::string name, std::string group, double startS
     int stageCode = 9;
     std::string eventNameToWrite = eventNameLatin1;
     if (writeHypnogram) {
-        // EpochLength is only applied when the Stade group is first created.
-        // Prefer an existing value; otherwise use the first full (untruncated) epoch,
-        // falling back to the Harmonie default of 30 s. Never use a truncated duration.
+        // First hypnogram write after open replaces the existing scoring and must
+        // also reset EpochLength: some files keep an empty Stade group with a
+        // bogus EpochLength (e.g. 2 or 4) that would refill StdND via AddMissingEpochs.
+        // Later writes in the same session must not change EpochLength (especially
+        // not from a truncated trailing epoch duration).
+        const bool replacingHypnogram = !m_replacedSleepStages;
         int epochLength = 30;
-        if (m_file->m_LengthOfSleepEpochs > 0) {
+        if (!replacingHypnogram && m_file->m_LengthOfSleepEpochs > 0) {
             epochLength = m_file->m_LengthOfSleepEpochs;
         } else if (!truncatedToSection && requestedDurationSec > 0.5) {
             epochLength = (int)round(requestedDurationSec);
             if (epochLength <= 0)
                 epochLength = 30;
         }
-        uint32_t stageGroup = m_file->EnsureSleepStageGroup("Stade", epochLength);
+        uint32_t stageGroup = m_file->EnsureSleepStageGroup("Stade", epochLength, replacingHypnogram);
         if (stageGroup == UINT32_MAX) {
             m_file->BeginGroupsEventEditing(false);
             m_lastError = "ERROR addEvent:Could not create Stade hypnogram group.";
             return false;
         }
         group_index = static_cast<int>(stageGroup);
-        // First "stage"/"Stade" write after open replaces the existing hypnogram.
-        if (!m_replacedSleepStages) {
+        if (replacingHypnogram) {
             m_file->ClearEventGroupItems(stageGroup);
             m_replacedSleepStages = true;
         }

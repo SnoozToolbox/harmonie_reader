@@ -489,13 +489,13 @@ public:
 	// New interface
 	int DeleteEventsByName(std::string eventName, uint32_t group_index);
 	void ClearPatientUserFields();
-	uint32_t EnsureSleepStageGroup( const char *Name, int epochLengthSec );
+	uint32_t EnsureSleepStageGroup( const char *Name, int epochLengthSec, bool forceEpochLength = false );
 	void ClearEventGroupItems( uint32_t Group );
 	void InitSleepStageEventItem( uint32_t Item, int stage );
 	std::string m_lastError;
 
 private:
-	void ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec );
+	void ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec, bool forceEpochLength = false );
 };
 
 }

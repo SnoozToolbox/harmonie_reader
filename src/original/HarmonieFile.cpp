@@ -2024,7 +2024,7 @@ void CHarmonieFile::ClearPatientUserFields() {
 	m_PatientInfo.UserFieldP5 = "";
 }
 
-void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec )
+void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec, bool forceEpochLength )
 {
 	if( Group >= m_EventGroup.Group.size() )
 		return;
@@ -2045,19 +2045,22 @@ void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec
 		pGroup->ItemProperty.push_back( ip );
 	}
 
-	/*	EpochLength must be set once when the stage group is created.
-		Never overwrite it from a later (possibly truncated) epoch duration:
-		BeginGroupsEventEditing(false) calls AddMissingEpochs(), which fills
-		gaps using m_LengthOfSleepEpochs. Shrinking it (e.g. 30 -> 2) causes
-		a dense StdND refill of the whole hypnogram.  */
+	/*	EpochLength drives AddMissingEpochs() (via m_LengthOfSleepEpochs).
+		- Do not change it from later truncated epoch durations (forceEpochLength=false).
+		- Do replace it when rewriting the hypnogram (forceEpochLength=true): some
+		  MASS/Stellate files keep an empty Stade group with a bogus EpochLength
+		  (e.g. 2 or 4). Keeping that value fills the hypnogram with StdND.  */
+	int epochLength = epochLengthSec > 0 ? epochLengthSec : 30;
 	int epochIdx = GetEventGroupPropertyIndex( (int)Group, "EpochLength" );
 	if( epochIdx == -1 )
-	{	int epochLength = epochLengthSec > 0 ? epochLengthSec : 30;
-		GROUPPROPERTY gp;
+	{	GROUPPROPERTY gp;
 		gp.Key = "EpochLength";
 		gp.Description = "Epoch Length";
 		gp.Value = std::to_string( epochLength );
 		pGroup->GroupProperty.push_back( gp );
+		m_LengthOfSleepEpochs = epochLength;
+	}else if( forceEpochLength )
+	{	pGroup->GroupProperty[epochIdx].Value = std::to_string( epochLength );
 		m_LengthOfSleepEpochs = epochLength;
 	}else if( m_LengthOfSleepEpochs <= 0 )
 	{	m_LengthOfSleepEpochs = atoi( pGroup->GroupProperty[epochIdx].Value.c_str() );
@@ -2078,7 +2081,7 @@ void CHarmonieFile::ConfigureSleepStageGroup( uint32_t Group, int epochLengthSec
 	FindGroupVariables();
 }
 
-uint32_t CHarmonieFile::EnsureSleepStageGroup( const char *Name, int epochLengthSec )
+uint32_t CHarmonieFile::EnsureSleepStageGroup( const char *Name, int epochLengthSec, bool forceEpochLength )
 {
 	if( !m_Editing )
 		return UINT32_MAX;
@@ -2109,9 +2112,11 @@ uint32_t CHarmonieFile::EnsureSleepStageGroup( const char *Name, int epochLength
 		group = AddEventGroup( createName, "" );
 		if( group == UINT32_MAX )
 			return UINT32_MAX;
+		// New group: always apply the provided epoch length.
+		forceEpochLength = true;
 	}
 
-	ConfigureSleepStageGroup( group, epochLengthSec );
+	ConfigureSleepStageGroup( group, epochLengthSec, forceEpochLength );
 	return m_StageGroup != UINT_MAX ? m_StageGroup : group;
 }
 
